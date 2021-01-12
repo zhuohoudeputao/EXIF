@@ -1,87 +1,163 @@
+# %% Definition of Classes and Functions
+# value in mm is named without 'px'
+# value in pixel is named with 'px'
 import os
-import exifread
 import pandas as pd
 import numpy as np
+import matplotlib
+matplotlib.rcParams['font.sans-serif'] = ['Microsoft YaHei']
+matplotlib.rcParams['font.family']='sans-serif'
 
-def obtain_intrinsics(file_path):
-    '''Obtain the intrinsics of a photo from exif information.
-
-    Attributes:
-        file_path: the absolute path of the photo
-    
-    Returns:
-        f_x: focal length on x dimension (pixles)
-        f_y: focal length on y dimension (pixels)
-        x_0: shift on x dimension (pixels)
-        y_0: shift on y dimension (pixels)
-    '''
-    with open(file_path, 'rb') as image_file:
-        tags = exifread.process_file(image_file, details=False)
-        # print(tags.keys())
-        if 'EXIF FocalLength' in tags.keys():
-            raise AttributeError('Focal Length is missing in exif')
-
-        focal_length = tags['EXIF FocalLength'].values[0].num / tags['EXIF FocalLength'].values[0].den
-        pixel_x_dimension = tags['EXIF ExifImageWidth'].values[0]
-        pixel_y_dimension = tags['EXIF ExifImageLength'].values[0]
-        x_resolution = tags['Image XResolution'].values[0].num
-        y_resolution = tags['Image YResolution'].values[0].num
-
-        f_x = focal_length / (25.4 / x_resolution)
-        f_y = focal_length / (25.4 / y_resolution)
-        x_0 = pixel_x_dimension/2
-        y_0 = pixel_y_dimension/2
-        # print('focal length =', focal_length, 'mm')
-        # print('image width =', pixel_x_dimension, 'pixels')
-        # print('image height =', pixel_y_dimension, 'pixels')
-        # print('x_resolution =', x_resolution, 'dpi')
-        # print('y_resolution =', y_resolution, 'dpi')
-        # print('f_x =', f_x, 'pixels')
-        # print('f_y =', f_y, 'pixels')
-        # print('x_0 =', x_0, 'pixels')
-        # print('y_0 =', y_0, 'pixels')
-        return f_x, f_y, x_0, y_0
-
-def obtain_intrinsic_matrix(file_path):
-    '''Obtain the intrinsic_matrix of a photo.
+CAMSENSORDB = pd.read_csv('cameraSensors.db', names=['make', 'model', 'ccd_width', 'providers'], header=None, sep=';')
+class focal_length_helper:
+    '''A class for obtaining related informations about focal length
 
     Attributes:
-        file_path: the absolute path of the photo
-    
-    Returns:
-        K: an intrinsic matrix in numpy
+        camera_sensors_db: the path of the db file
+        img_path: the path of img
+        fl: focal length in mm
+        equivalent_fl: equvalent focal length in 35mm
+        img_width_px: image width in pixel
+        img_height_px: image height in pixel
     '''
-    f_x, f_y, x_0, y_0 = obtain_intrinsics(file_path)
-    intrinsic_matrix = [[f_x, 0, x_0], [0, f_y, y_0], [0, 0, 1]]
-    # print('K = ', intrinsic_matrix)
-    return np.mat(intrinsic_matrix)
+    def __init__(self, img_path):
+        super().__init__()
+        self.img_path = img_path
+        self.fl, self.efl, self.img_width_px, self.img_height_px, self.make, self.model = self.obtain_exif_exif(img_path)
 
-def extract_intrinsic(data_paths):
-    '''Extract the intrinsic matrix of photos in the data_paths. 
+    def _ccd_width_db(self):
+        """obtain ccd width based on make and model information in camera sensors database
 
-    Attributes:
-        data_path: the absolute path of photos
+        Return:
+            ccd_width: ccd width in mm
+        """
+        df = CAMSENSORDB
+        import re
+        df = df[df['make'].str.contains(self.make, flags=re.IGNORECASE)]
+        df = df[df['model'].str.contains(self.model, flags=re.IGNORECASE)]
+        # print(df)
+        self.ccd_width = df.iat[0, 2] # the third column
+
+    def _ccd_width_efl(self):
+        """obtain ccd width based on equivalent focal length
+            1. EFL = FL * 43.27 / \sqrt(ccd width^2+ccd height^2)
+            2. ccd width/ccd height = image width/image height
+
+        Return:
+            ccd_width: ccd width in mm
+        """
+        ccd_diagonal = 43.27 / (self.efl / self.fl)
+        self.ccd_width = np.sqrt(np.power(ccd_diagonal, 2) / (1 + np.power(self.img_height_px/self.img_width_px, 2)))
+
+    def obtain_focal_length_px(self, method='db'):
+        '''obtain focal length in pixel
+
+        Attributes:
+            image_path: the absolute path of the photo
+            method: the method to obtrain focal length in pixel, now support 'db'(default) or 'efl'
+        '''
+        if method=='db':
+            self._ccd_width_db()
+        elif method=='efl':
+            self._ccd_width_efl()
+        fl_px = self.img_width_px * self.fl / self.ccd_width
+        return fl_px
+
+    def obtain_intrinsic_matrix(self, method='db'):
+        '''Obtain the intrinsic matrix of a photo.
+
+        Attributes:
+            method: the method to obtain focal length in pixel, now support 'db'(default) or 'efl'
+
+        Returns:
+            k: an intrinsic matrix in numpy
+        '''
+        fl_px = self.obtain_focal_length_px(method)
+        k = np.array([[fl_px, 0, self.img_width_px/2], [0, fl_px, self.img_height_px/2], [0, 0, 1]])
+        return k
     
-    Returns:
-        A pands dataframe contains the pairs of filename and intrinsics
-    '''
-    df = pd.DataFrame(columns=['f_x', 'f_y', 'x_0', 'y_0'], dtype=np.float16)
-    index = 0
-    for data_path in data_paths:
+    def obtain_intrinsics(self, method='db'):
+        '''Obtain the intrinsics of a photo.
+
+        Attributes:
+            method: the method to obtrain focal length in pixel, now support 'db'(default) or 'efl'
+
+        Returns:
+            fl_px: focal length in pixel
+            u_0:
+            v_0:
+        '''
+        fl_px = self.obtain_focal_length_px(method)
+        u_0 = self.img_width_px/2
+        v_0 = self.img_height_px/2
+        return fl_px, u_0, v_0
+
+    @staticmethod
+    def obtain_exif_exif(img_path):
+        '''Obtain exif using the pacakge exif. Install it using
+        ```bash
+        pip install exif
+        ```
+        Now is hided.
+        '''
+        from exif import Image
+        with open(img_path, 'rb') as image_file:
+            image = Image(image_file)
+            if not image.has_exif:
+                raise Exception('exif information is not exist!')
+            # for tag in dir(image):
+            #     print(tag, '=', image.get(tag))
+            fl = image.focal_length
+            equivalent_fl = image.focal_length_in_35mm_film
+            img_width_px = image.pixel_x_dimension
+            img_height_px = image.pixel_y_dimension
+            make = image.make
+            model = image.model
+            return fl, equivalent_fl, img_width_px, img_height_px, make, model
+
+    @staticmethod
+    def __obtain_exif_exifread(img_path):
+        '''Obtain exif using the pacakge exifread. Install it using
+        ```bash
+        pip install exifread
+        ```
+        '''
+        import exifread
+        with open(img_path, 'rb') as image_file:
+            tags = exifread.process_file(image_file)
+            # for key in tags.keys():
+            #     print(key, '=', tags[key].values)
+            fl = tags['EXIF FocalLength'].values[0].num/tags['EXIF FocalLength'].values[0].den
+            equivalent_fl = tags['EXIF FocalLengthIn35mmFilm'].values[0]
+            img_width_px = tags['EXIF ExifImageWidth'].values[0]
+            img_height_px = tags['EXIF ExifImageLength'].values[0]
+            make = tags['Image Make'].values
+            model = tags['Image Model'].values
+            return fl, equivalent_fl, img_width_px, img_height_px, make, model
+
+    @staticmethod
+    def extract_intrinsics_df(data_path, method='db'):
+        '''Extract the intrinsics of photos in the data_path into a dataframe for analysis.
+
+        Attributes:
+            data_path: the absolute paths of photos
+            method: the method to obtrain focal length in pixel, now support 'db'(default) or 'efl'
+        
+        Returns:
+            A pands dataframe contains the pairs of filename and intrinsics
+        '''
+        df = pd.DataFrame(columns=['fl_px', 'u_0', 'v_0'], dtype=np.float16)
+        index = 0
         for filename in os.listdir(data_path):
-            file_path = os.path.join(data_path, filename)
+            file_path = os.path.join(data_path, filename) # for every file
             # print(file_path)
             try:
-                intrinsics = obtain_intrinsics(file_path)
-                df.loc[index] = intrinsics
+                intrinsics = focal_length_helper(file_path).obtain_intrinsics(method)
+                df.loc[index] = intrinsics # add to the dataframe
                 index += 1
-            except AssertionError as e:
+            except (AttributeError, KeyError, IndexError) as e: 
+                # AttributeError, KeyError: when obtaining exif, some attributes are missing
+                # IndexError: when make and model is not contained in camera sensors db 
+                # print(e)
                 continue
-        
-    # print(df)
-    return df
-
-df = extract_intrinsic(['D:\lzx_work\EXIF\东莞可园-顾雪萍'])
-# df.loc[:, ['f_x','f_y']].plot()
-df.f_x.value_counts()
-df.f_x.plot.kde()
+        return df
