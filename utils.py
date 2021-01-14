@@ -4,16 +4,20 @@
 import os
 import pandas as pd
 import numpy as np
-import matplotlib
-matplotlib.rcParams['font.sans-serif'] = ['Microsoft YaHei']
-matplotlib.rcParams['font.family']='sans-serif'
 
-CAMSENSORDB = pd.read_csv('cameraSensors.db', names=['make', 'model', 'ccd_width', 'providers'], header=None, sep=';')
+def get_path(): 
+    basepath = os.path.abspath(__file__)
+    current_path = os.path.dirname(basepath)
+    return current_path
+
+CAMSENSORDB = pd.read_csv(os.path.join(get_path(), 'cameraSensors.db'),
+                        names=['make', 'model', 'ccd_width', 'providers'], 
+                        header=None, sep=';')
 class focal_length_helper:
     '''A class for obtaining related informations about focal length
 
     Attributes:
-        camera_sensors_db: the path of the db file
+        db_path: the path of the db file
         img_path: the path of img
         fl: focal length in mm
         equivalent_fl: equvalent focal length in 35mm
@@ -33,6 +37,8 @@ class focal_length_helper:
         """
         df = CAMSENSORDB
         import re
+        self.make = str.split(self.make)[0]
+        # print(self.make, self.model)
         df = df[df['make'].str.contains(self.make, flags=re.IGNORECASE)]
         df = df[df['model'].str.contains(self.model, flags=re.IGNORECASE)]
         # print(df)
