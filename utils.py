@@ -68,6 +68,9 @@ class focal_length_helper:
             self._ccd_width_efl()
         fl_px = self.img_width_px * self.fl / self.ccd_width
         return fl_px
+    
+    def obtain_focal_length_mm(self):
+        return self.fl
 
     def obtain_intrinsic_matrix(self, method='db'):
         '''Obtain the intrinsic matrix of a photo.
