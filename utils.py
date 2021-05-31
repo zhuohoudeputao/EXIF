@@ -117,7 +117,10 @@ class focal_length_helper:
             # for tag in dir(image):
             #     print(tag, '=', image.get(tag))
             fl = image.focal_length
-            equivalent_fl = image.focal_length_in_35mm_film
+            if fl != 0:
+                equivalent_fl = 0
+            else:
+                equivalent_fl = image.focal_length_in_35mm_film
             img_width_px = image.pixel_x_dimension
             img_height_px = image.pixel_y_dimension
             make = image.make
