@@ -38,11 +38,10 @@ class focal_length_helper:
         df = CAMSENSORDB
         import re
         self.make = str.split(self.make)[0]
-        # print(self.make, self.model)
+        print(self.make, self.model)
         df = df[df['make'].str.contains(self.make, flags=re.IGNORECASE)]
         df = df[df['model'].str.contains(self.model, flags=re.IGNORECASE)]
-        # print(df)
-        self.ccd_width = df.iat[0, 2] # the third column
+        self.ccd_width = float(df.iat[0, 2]) # the third column
 
     def _ccd_width_efl(self):
         """obtain ccd width based on equivalent focal length
